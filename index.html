@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Circuit Sketcher（アース・可変抵抗・テキスト追加）</title>
+<style>
+  body{font-family:sans-serif;margin:0;padding:0;display:flex;height:100vh;background:#f9fafb;overflow:hidden}
+  #palette{width:240px;padding:15px;border-right:2px solid #e5e7eb;background:#fff;box-shadow:2px 0 5px rgba(0,0,0,.06);overflow-y:auto;flex-shrink:0}
+  h3{margin:0 0 10px;border-bottom:1px solid #eee;padding-bottom:8px;color:#334155}
+  .part{display:flex;align-items:center;padding:10px;margin-bottom:10px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;cursor:grab;transition:.15s}
+  .part:hover{background:#eef2ff}
+  .part svg{width:44px;height:22px;margin-right:10px;overflow:visible}
+  #canvas-container{flex-grow:1;display:flex;flex-direction:column;overflow:auto}
+  #toolbar{display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px;background:#fff;border-bottom:1px solid #e5e7eb}
+  .btn{padding:8px 12px;font-size:14px;background:#0ea5e9;color:#fff;border:none;border-radius:8px;cursor:pointer}
+  .btn:hover{background:#0284c7}
+  #canvas{
+    flex-grow:1;width:100%;background:#fff;border:1px solid #cbd5e1;
+    background-image:linear-gradient(#e5e7eb 1px,transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px);
+    background-size:20px 20px;display:block
+  }
+  .circuit-part{cursor:move}
+  .circuit-part.selected{outline:2px solid #38bdf8;outline-offset:2px}
+  .ui-rot-btn{cursor:pointer}
+  .ui-rot-btn:hover circle{fill:#e0f2fe}
+</style>
+</head>
+<body>
+
+  <div id="palette">
+    <h3>回路パーツ</h3>
+
+    <!-- 抵抗器 -->
+    <div class="part" draggable="true" data-part-type="resistor">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="40" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <rect x="40" y="14" width="40" height="16" stroke="black" fill="white" stroke-width="2" />
+        <line x1="80" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>抵抗器
+    </div>
+
+    <!-- 可変抵抗（抵抗＋右上がり矢印） -->
+    <div class="part" draggable="true" data-part-type="v-resistor">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="40" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <rect x="40" y="14" width="40" height="16" stroke="black" fill="white" stroke-width="2"/>
+        <!-- 矢印（右上がり） -->
+        <line x1="46" y1="30" x2="82" y2="6" stroke="black" stroke-width="2"/>
+        <polygon points="82,6 74,7 79,11" fill="black"/>
+        <line x1="80" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>可変抵抗
+    </div>
+
+    <!-- 電源 -->
+    <div class="part" draggable="true" data-part-type="battery">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="54" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <line x1="54" y1="16" x2="54" y2="28" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <line x1="66" y1="12" x2="66" y2="32" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <line x1="66" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>電源
+    </div>
+
+    <!-- 豆電球 -->
+    <div class="part" draggable="true" data-part-type="bulb">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="50" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="22" r="10" stroke="black" fill="white" stroke-width="2"/>
+        <line x1="52.9" y1="14.9" x2="67.1" y2="29.1" stroke="black" stroke-width="1.5"/>
+        <line x1="52.9" y1="29.1" x2="67.1" y2="14.9" stroke="black" stroke-width="1.5"/>
+        <line x1="70" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>豆電球
+    </div>
+
+    <!-- 電流計 -->
+    <div class="part" draggable="true" data-part-type="ammeter">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="50" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="22" r="10" stroke="black" fill="white" stroke-width="2"/>
+        <text x="60" y="26" font-family="monospace" font-size="14" text-anchor="middle">A</text>
+        <line x1="70" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>電流計
+    </div>
+
+    <!-- 電圧計 -->
+    <div class="part" draggable="true" data-part-type="voltmeter">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="50" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="22" r="10" stroke="black" fill="white" stroke-width="2"/>
+        <text x="60" y="26" font-family="monospace" font-size="14" text-anchor="middle">V</text>
+        <line x1="70" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>電圧計
+    </div>
+
+    <!-- 検流計 -->
+    <div class="part" draggable="true" data-part-type="galvanometer">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="50" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="22" r="10" stroke="black" fill="white" stroke-width="2"/>
+        <text x="60" y="26" font-family="monospace" font-size="14" text-anchor="middle">G</text>
+        <line x1="70" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>検流計
+    </div>
+
+    <!-- 交流電源 -->
+    <div class="part" draggable="true" data-part-type="ac-source">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="50" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="22" r="10" stroke="black" fill="white" stroke-width="2"/>
+        <path d="M 52 22 q 4 -6 8 0 q 4 6 8 0" stroke="black" fill="none" stroke-width="2" stroke-linecap="round"/>
+        <line x1="70" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>交流電源
+    </div>
+
+    <!-- スイッチ -->
+    <div class="part" draggable="true" data-part-type="switch">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="40" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="40" cy="22" r="3" fill="black"/>
+        <circle cx="80" cy="22" r="3" fill="black"/>
+        <line x1="40" y1="22" x2="78" y2="14" stroke="black" stroke-width="2"/>
+        <line x1="80" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>スイッチ
+    </div>
+
+    <!-- コンデンサ -->
+    <div class="part" draggable="true" data-part-type="capacitor">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="55" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <line x1="55" y1="10" x2="55" y2="34" stroke="black" stroke-width="2"/>
+        <line x1="65" y1="10" x2="65" y2="34" stroke="black" stroke-width="2"/>
+        <line x1="65" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>コンデンサ
+    </div>
+
+    <!-- コイル（下向きの山） -->
+    <div class="part" draggable="true" data-part-type="coil">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="40" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <path d="M 40 22 c 0 -6, 6 -6, 6 0 c 0 -6, 6 -6, 6 0 c 0 -6, 6 -6, 6 0 c 0 -6, 6 -6, 6 0"
+              stroke="black" fill="none" stroke-width="2" stroke-linecap="round"/>
+        <line x1="64" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>コイル
+    </div>
+
+    <!-- ダイオード -->
+    <div class="part" draggable="true" data-part-type="diode">
+      <svg viewBox="0 0 120 44">
+        <line x1="0" y1="22" x2="40" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <polygon points="40,32 40,12 60,22" stroke="black" fill="white" stroke-width="2"/>
+        <line x1="60" y1="12" x2="60" y2="32" stroke="black" stroke-width="2"/>
+        <line x1="60" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/>
+      </svg>ダイオード
+    </div>
+
+    <!-- アース（パレット用） -->
+    <div class="part" draggable="true" data-part-type="ground">
+    <svg viewBox="0 0 120 60">
+        <!-- 1マス分＝20px の縦導線のみ（上が接続点） -->
+        <line x1="60" y1="20" x2="60" y2="40" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <!-- 三本線（長→中→短）を導線の下側に配置 -->
+        <line x1="48" y1="40" x2="72" y2="40" stroke="black" stroke-width="2"/>
+        <line x1="52" y1="44" x2="68" y2="44" stroke="black" stroke-width="2"/>
+        <line x1="56" y1="48" x2="64" y2="48" stroke="black" stroke-width="2"/>
+    </svg>アース
+    </div>
+
+    <h3>導線パーツ</h3>
+    <div class="part" draggable="true" data-part-type="line-straight"><svg viewBox="0 0 120 44"><line x1="0" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>直線/斜め</div>
+    <div class="part" draggable="true" data-part-type="line-l"><svg viewBox="0 0 120 44"><line x1="0" y1="22" x2="60" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/><line x1="60" y1="22" x2="60" y2="44" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>L字</div>
+    <div class="part" draggable="true" data-part-type="line-t"><svg viewBox="0 0 120 44"><line x1="0" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/><line x1="60" y1="22" x2="60" y2="44" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>T字</div>
+    <div class="part" draggable="true" data-part-type="line-cross"><svg viewBox="0 0 120 44"><line x1="0" y1="22" x2="120" y2="22" stroke="black" stroke-width="2" stroke-linecap="round"/><line x1="60" y1="0" x2="60" y2="44" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>十字</div>
+    <div class="part" draggable="true" data-part-type="node">
+      <svg viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r="3" fill="black"/>
+      </svg>分岐点（黒丸）
+    </div>
+  </div>
+
+  <div id="canvas-container">
+    <div id="toolbar">
+      <button id="text-btn" class="btn" title="テキストを追加">テキスト追加</button>
+      <button id="download-btn" class="btn">PNGダウンロード</button>
+    </div>
+    <svg id="canvas"></svg>
+  </div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const parts = document.querySelectorAll('.part');
+const downloadBtn = document.getElementById('download-btn');
+const textBtn = document.getElementById('text-btn');
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const GRID_SIZE = 20;
+
+// 端子半長：軸方向=40px / 斜め=40√2px
+const HALF_AXIS = 2 * GRID_SIZE;
+const HALF_DIAG = 2 * GRID_SIZE * Math.SQRT2;
+const CAP_PLATE_X = 5;
+const BAT_PLATE_X = 6;
+
+let draggedPartType = null;
+let selectedPart = null;
+let isDraggingPart = false;
+let offset = { x: 0, y: 0 };
+let textInsertMode = false;
+
+// UIレイヤ（回転ボタン）
+const uiLayer = document.createElementNS(SVG_NS,'g');
+uiLayer.setAttribute('id','ui-layer');
+canvas.appendChild(uiLayer);
+
+/* ---------- パレット ---------- */
+parts.forEach(part => {
+  part.addEventListener('dragstart', (e) => {
+    draggedPartType = e.currentTarget.dataset.partType;
+    e.dataTransfer.effectAllowed = 'move';
+  });
+});
+canvas.addEventListener('dragover', (e) => e.preventDefault());
+canvas.addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (!draggedPartType) return;
+  const coords = getSvgCoordinates(e);
+  const x = Math.round(coords.x / GRID_SIZE) * GRID_SIZE;
+  const y = Math.round(coords.y / GRID_SIZE) * GRID_SIZE;
+  const g = createPartOnCanvas(draggedPartType, x, y);
+  selectPart(g);
+  draggedPartType = null;
+});
+
+/* ---------- 背景クリックで選択解除 / テキスト挿入 ---------- */
+canvas.addEventListener('mousedown', (e) => {
+  if (e.target === canvas || e.target.parentNode === uiLayer) {
+    if (textInsertMode) {
+      const coords = getSvgCoordinates(e);
+      const x = Math.round(coords.x / GRID_SIZE) * GRID_SIZE;
+      const y = Math.round(coords.y / GRID_SIZE) * GRID_SIZE;
+      const content = window.prompt('テキストを入力してください（改行可）');
+      if (content && content.length > 0) {
+        const g = createTextLabel(content, x, y);
+        selectPart(g);
+      }
+      textInsertMode = false;
+    } else {
+      deselectAll();
+    }
+  }
+});
+
+/* ---------- パーツ生成 ---------- */
+function createPartOnCanvas(type, x, y) {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class','circuit-part');
+  g.setAttribute('data-type', type);
+  g.setAttribute('data-rotation','0');
+  g.setAttribute('data-x', x);
+  g.setAttribute('data-y', y);
+  g.setAttribute('transform', `translate(${x},${y}) rotate(0)`);
+  setInnerGeometry(g, 0);
+
+  g.addEventListener('click', (e) => { e.stopPropagation(); selectPart(g); });
+
+  g.addEventListener('mousedown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    isDraggingPart = true; selectPart(g);
+    const coords = getSvgCoordinates(e);
+    const cx = parseFloat(g.getAttribute('data-x'));
+    const cy = parseFloat(g.getAttribute('data-y'));
+    offset.x = coords.x - cx; offset.y = coords.y - cy;
+  });
+
+  canvas.appendChild(g);
+  return g;
+}
+
+/* ---------- テキスト（ラベル）生成 ---------- */
+function createTextLabel(text, x, y) {
+  const g = document.createElementNS(SVG_NS,'g');
+  g.setAttribute('class','circuit-part');
+  g.setAttribute('data-type','label');
+  g.setAttribute('data-rotation','0');
+  g.setAttribute('data-x', x);
+  g.setAttribute('data-y', y);
+  g.setAttribute('data-text', text);
+  g.setAttribute('transform', `translate(${x},${y}) rotate(0)`);
+  setInnerGeometry(g, 0); // ラベル描画
+
+  g.addEventListener('click', (e) => { e.stopPropagation(); selectPart(g); });
+  g.addEventListener('mousedown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    isDraggingPart = true; selectPart(g);
+    const coords = getSvgCoordinates(e);
+    const cx = parseFloat(g.getAttribute('data-x'));
+    const cy = parseFloat(g.getAttribute('data-y'));
+    offset.x = coords.x - cx; offset.y = coords.y - cy;
+  });
+
+  canvas.appendChild(g);
+  return g;
+}
+
+/* ---------- 移動・スナップ ---------- */
+canvas.addEventListener('mousemove', (e) => {
+  if (isDraggingPart && selectedPart) {
+    const coords = getSvgCoordinates(e);
+    let nx = coords.x - offset.x;
+    let ny = coords.y - offset.y;
+    nx = Math.round(nx / GRID_SIZE) * GRID_SIZE;
+    ny = Math.round(ny / GRID_SIZE) * GRID_SIZE;
+    updatePartTransform(selectedPart, nx, ny, getRot(selectedPart));
+    updateUILayer();
+  }
+});
+['mouseup','mouseleave'].forEach(ev => canvas.addEventListener(ev, () => { isDraggingPart = false; }));
+
+/* ---------- 選択/解除 ---------- */
+function deselectAll(){
+  if (selectedPart){ selectedPart.classList.remove('selected'); }
+  selectedPart = null;
+  uiLayer.innerHTML = '';
+}
+function selectPart(el){
+  if (selectedPart === el) return;
+  deselectAll();
+  selectedPart = el; selectedPart.classList.add('selected');
+  updateUILayer();
+}
+
+/* ---------- 変換とジオメトリ ---------- */
+function getRot(part){ return parseFloat(part.getAttribute('data-rotation')); }
+function setRot(part, newRot){
+  const r = (Math.round(newRot / 45) * 45) % 360;
+  part.setAttribute('data-rotation', r);
+  setInnerGeometry(part, r); // 非回転要素などを更新
+  const x = parseFloat(part.getAttribute('data-x'));
+  const y = parseFloat(part.getAttribute('data-y'));
+  updatePartTransform(part, x, y, r);
+}
+function updatePartTransform(part, x, y, rotation){
+  part.setAttribute('data-x', x);
+  part.setAttribute('data-y', y);
+  part.setAttribute('transform', `translate(${x},${y}) rotate(${rotation})`);
+}
+function isAxisAngle(deg){ return (deg % 90 === 0); }
+function halfLenFor(deg){ return isAxisAngle(deg) ? HALF_AXIS : HALF_DIAG; }
+
+/* ---------- 内部形状（端子は原則 ±L,0。ラベル/アースは特例） ---------- */
+function setInnerGeometry(part, rotationDeg){
+  const type = part.getAttribute('data-type');
+  const L = halfLenFor(rotationDeg);
+  const bodyW = 40, bodyH = 16;
+  const lineW = `stroke="black" stroke-width="2" stroke-linecap="round"`;
+
+  if (type === 'resistor'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-20" y2="0" ${lineW}/>
+       <rect x="-20" y="${-bodyH/2}" width="${bodyW}" height="${bodyH}" fill="white" stroke="black" stroke-width="2"/>
+       <line x1="20" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'v-resistor'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-20" y2="0" ${lineW}/>
+       <rect x="-20" y="${-bodyH/2}" width="${bodyW}" height="${bodyH}" fill="white" stroke="black" stroke-width="2"/>
+       <!-- 矢印：右上がり -->
+       <line x1="-14" y1="${bodyH/2+2}" x2="22" y2="${-bodyH/2-6}" stroke="black" stroke-width="2"/>
+       <polygon points="22,${-bodyH/2-6} 14,${-bodyH/2-5} 19,${-bodyH/2-1}" fill="black"/>
+       <line x1="20" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'battery'){
+    const negX = -BAT_PLATE_X, posX = BAT_PLATE_X;
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="${negX}" y2="0" ${lineW}/>
+       <line x1="${negX}" y1="-6" x2="${negX}" y2="6" ${lineW}/>
+       <line x1="${posX}" y1="-10" x2="${posX}" y2="10" ${lineW}/>
+       <line x1="${posX}" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'bulb'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-10" y2="0" ${lineW}/>
+       <circle cx="0" cy="0" r="10" stroke="black" fill="white" stroke-width="2"/>
+       <line x1="-7.07" y1="-7.07" x2="7.07" y2="7.07" stroke="black" stroke-width="1.5"/>
+       <line x1="-7.07" y1="7.07" x2="7.07" y2="-7.07" stroke="black" stroke-width="1.5"/>
+       <line x1="10" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  // メータ & AC：丸＋中身は非回転
+  if (type === 'ammeter' || type === 'voltmeter' || type === 'galvanometer' || type === 'ac-source'){
+    let inner = '';
+    if (type === 'ac-source'){
+      inner = `<path d="M -8 0 q 4 -6 8 0 q 4 6 8 0"
+                    ${lineW} fill="none" transform="rotate(${-rotationDeg})"/>`;
+    } else {
+      const label = (type === 'ammeter') ? 'A' : (type === 'voltmeter') ? 'V' : 'G';
+      inner = `<text x="0" y="4" font-family="monospace" font-size="14"
+                     text-anchor="middle" transform="rotate(${-rotationDeg})">${label}</text>`;
+    }
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-10" y2="0" ${lineW}/>
+       <circle cx="0" cy="0" r="10" stroke="black" fill="white" stroke-width="2"/>
+       ${inner}
+       <line x1="10" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'switch'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-20" y2="0" ${lineW}/>
+       <circle cx="-20" cy="0" r="3" fill="black"/>
+       <circle cx="20"  cy="0" r="3" fill="black"/>
+       <line x1="-20" y1="0" x2="18" y2="-8" stroke="black" stroke-width="2"/>
+       <line x1="20" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'capacitor'){
+    const leftX  = -CAP_PLATE_X, rightX = CAP_PLATE_X;
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="${leftX}" y2="0" ${lineW}/>
+       <line x1="${leftX}"  y1="-12" x2="${leftX}"  y2="12" ${lineW}/>
+       <line x1="${rightX}" y1="-12" x2="${rightX}" y2="12" ${lineW}/>
+       <line x1="${rightX}" y1="0"  x2="${L}"      y2="0"  ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'coil'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-20" y2="0" ${lineW}/>
+       <path d="M -20 0
+                c 0 -6, 6 -6, 6 0
+                c 0 -6, 6 -6, 6 0
+                c 0 -6, 6 -6, 6 0
+                c 0 -6, 6 -6, 6 0"
+             stroke="black" fill="none" stroke-width="2" stroke-linecap="round"/>
+       <line x1="4" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'diode'){
+    part.innerHTML =
+      `<line x1="${-L}" y1="0" x2="-20" y2="0" ${lineW}/>
+       <polygon points="-20,10 -20,-10 0,0" stroke="black" fill="white" stroke-width="2"/>
+       <line x1="0" y1="-10" x2="0" y2="10" ${lineW}/>
+       <line x1="0" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'ground'){
+  // 接続点は (0,0)。そこから下向きに 1マス（20px）の直線一本だけ。
+  // 三本線はその直下に描画（長→中→短）。
+    part.innerHTML =
+        `<line x1="0" y1="0" x2="0" y2="20" ${lineW}/>
+        <line x1="-12" y1="20" x2="12"  y2="20" ${lineW}/>
+        <line x1="-8"  y1="24" x2="8"   y2="24" ${lineW}/>
+        <line x1="-4"  y1="28" x2="4"   y2="28" ${lineW}/>`;
+    return;
+  }
+
+  if (type === 'label'){
+    // ラベル（テキスト）：内容は data-text。中身は回転を打ち消して常に水平。
+    const raw = part.getAttribute('data-text') || '';
+    const lines = raw.split(/\r?\n/);
+
+    // ASCII連続と非ASCII連続で分割し、フォントを切り替える
+    function splitRuns(s){
+      const runs = [];
+      let i=0;
+      while(i<s.length){
+        const isAscii = s.charCodeAt(i) <= 0x7F;
+        let j=i+1;
+        while(j<s.length && (s.charCodeAt(j)<=0x7F)===isAscii) j++;
+        runs.push({text:s.slice(i,j), ascii:isAscii});
+        i=j;
+      }
+      return runs;
+    }
+
+    // 組版
+    let yCursor = 0;
+    let content = `<text transform="rotate(${-rotationDeg})">`;
+    for (let li=0; li<lines.length; li++){
+      const runs = splitRuns(lines[li]);
+      let line = `<tspan x="0" dy="${li===0?0:16}">`;
+      for (const r of runs){
+        if (r.text === '') continue;
+        if (r.ascii){
+          line += `<tspan font-family="Times New Roman, Times, serif" font-style="italic">${escapeXML(r.text)}</tspan>`;
+        }else{
+          line += `<tspan font-family="MS Gothic, IPAMonaPGothic, Meiryo, sans-serif">${escapeXML(r.text)}</tspan>`;
+        }
+      }
+      line += `</tspan>`;
+      content += line;
+    }
+    content += `</text>`;
+    part.innerHTML = content;
+    return;
+  }
+
+  /* --- 導線 --- */
+  if (type === 'line-straight'){
+    part.innerHTML = `<line x1="${-L}" y1="0" x2="${L}" y2="0" ${lineW}/>`;
+    return;
+  }
+  if (type === 'line-l'){
+    const A = L;
+    part.innerHTML =
+      `<line x1="${-A}" y1="0" x2="0" y2="0" ${lineW}/>
+       <line x1="0" y1="0" x2="0" y2="${A}" ${lineW}/>`;
+    return;
+  }
+  if (type === 'line-t'){
+    const A = L;
+    part.innerHTML =
+      `<line x1="${-A}" y1="0" x2="${A}" y2="0" ${lineW}/>
+       <line x1="0" y1="0" x2="0" y2="${A}" ${lineW}/>`;
+    return;
+  }
+  if (type === 'line-cross'){
+    const A = L;
+    part.innerHTML =
+      `<line x1="${-A}" y1="0" x2="${A}" y2="0" ${lineW}/>
+       <line x1="0" y1="${-A}" x2="0" y2="${A}" ${lineW}/>`;
+    return;
+  }
+}
+
+/* XMLエスケープ */
+function escapeXML(s){
+  return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');
+}
+
+/* ---------- 回転UI（45°刻み） ---------- */
+function updateUILayer(){
+  uiLayer.innerHTML = '';
+  if (!selectedPart) return;
+  const x = parseFloat(selectedPart.getAttribute('data-x'));
+  const y = parseFloat(selectedPart.getAttribute('data-y'));
+
+  const g = document.createElementNS(SVG_NS,'g');
+  g.setAttribute('class','ui-rot-btn');
+  g.setAttribute('transform', `translate(${x},${y-28})`);
+  const circle = document.createElementNS(SVG_NS,'circle');
+  circle.setAttribute('r','10'); circle.setAttribute('fill','#fff');
+  circle.setAttribute('stroke','#38bdf8'); circle.setAttribute('stroke-width','2');
+  const path = document.createElementNS(SVG_NS,'path');
+  path.setAttribute('d','M -4,1 A 6,6 0 1 1 4,-1 l -2,-2 M 4,-1 l 0,4');
+  path.setAttribute('fill','none'); path.setAttribute('stroke','#0ea5e9');
+  path.setAttribute('stroke-width','2'); path.setAttribute('stroke-linecap','round');
+  g.appendChild(circle); g.appendChild(path);
+  g.addEventListener('click', (e) => { e.stopPropagation(); setRot(selectedPart, getRot(selectedPart) + 45); });
+  uiLayer.appendChild(g);
+}
+
+/* ---------- キーボード（互換） ---------- */
+window.addEventListener('keydown', (e) => {
+  if (!selectedPart) return;
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setRot(selectedPart, getRot(selectedPart) + 45); }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); selectedPart.remove(); deselectAll(); }
+});
+
+/* ---------- テキスト追加モード ---------- */
+textBtn.addEventListener('click', () => {
+  textInsertMode = true;
+  deselectAll();
+  alert('テキストを置きたい位置をキャンバス上でクリックしてください。');
+});
+
+/* ---------- 座標/書き出し ---------- */
+function getSvgCoordinates(e){
+  const pt = canvas.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+  return pt.matrixTransform(canvas.getScreenCTM().inverse());
+}
+downloadBtn.addEventListener('click', () => {
+  deselectAll();
+  const serializer = new XMLSerializer();
+  const originalStyle = canvas.style.cssText;
+  canvas.style.backgroundImage = 'none'; canvas.style.backgroundColor = 'white';
+  const svgString = serializer.serializeToString(canvas);
+  canvas.style.cssText = originalStyle;
+
+  const blob = new Blob([svgString], {type:'image/svg+xml;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    const bounds = canvas.getBBox();
+    const cvs = document.createElement('canvas');
+    cvs.width = bounds.width + bounds.x + 10;
+    cvs.height = bounds.height + bounds.y + 10;
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle = 'white'; ctx.fillRect(0,0,cvs.width,cvs.height);
+    ctx.drawImage(img,0,0);
+    const a = document.createElement('a');
+    a.href = cvs.toDataURL('image/png'); a.download = 'circuit.png'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+});
+</script>
+</body>
+</html>
