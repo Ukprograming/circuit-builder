@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Circuit Sketcher（アース・可変抵抗・テキスト追加）</title>
+<title>Circuit Sketcher（アース・可変抵抗・テキスト追加＋導線モード）</title>
 <style>
   body{font-family:sans-serif;margin:0;padding:0;display:flex;height:100vh;background:#f9fafb;overflow:hidden}
   #palette{width:240px;padding:15px;border-right:2px solid #e5e7eb;background:#fff;box-shadow:2px 0 5px rgba(0,0,0,.06);overflow-y:auto;flex-shrink:0}
@@ -15,6 +15,7 @@
   #toolbar{display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px;background:#fff;border-bottom:1px solid #e5e7eb}
   .btn{padding:8px 12px;font-size:14px;background:#0ea5e9;color:#fff;border:none;border-radius:8px;cursor:pointer}
   .btn:hover{background:#0284c7}
+  .btn.secondary{background:#64748b}.btn.secondary:hover{background:#475569}
   #canvas{
     flex-grow:1;width:100%;background:#fff;border:1px solid #cbd5e1;
     background-image:linear-gradient(#e5e7eb 1px,transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px);
@@ -180,6 +181,7 @@
 
   <div id="canvas-container">
     <div id="toolbar">
+      <button id="wire-mode-btn" class="btn secondary" title="直線導線モード">導線モード</button>
       <button id="text-btn" class="btn" title="テキストを追加">テキスト追加</button>
       <button id="download-btn" class="btn">PNGダウンロード</button>
     </div>
@@ -191,6 +193,7 @@ const canvas = document.getElementById('canvas');
 const parts = document.querySelectorAll('.part');
 const downloadBtn = document.getElementById('download-btn');
 const textBtn = document.getElementById('text-btn');
+const wireModeBtn = document.getElementById('wire-mode-btn');
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRID_SIZE = 20;
@@ -207,7 +210,12 @@ let isDraggingPart = false;
 let offset = { x: 0, y: 0 };
 let textInsertMode = false;
 
-// UIレイヤ（回転ボタン）
+// ★ 導線ドラッグ描画用
+let wireDrawMode = false;
+let wireStart = null;   // {x,y} 交点
+let rubberLine = null;  // プレビュー line
+
+// UIレイヤ（回転ボタンやプレビュー）
 const uiLayer = document.createElementNS(SVG_NS,'g');
 uiLayer.setAttribute('id','ui-layer');
 canvas.appendChild(uiLayer);
@@ -231,7 +239,7 @@ canvas.addEventListener('drop', (e) => {
   draggedPartType = null;
 });
 
-/* ---------- 背景クリックで選択解除 / テキスト挿入 ---------- */
+/* ---------- 背景クリックで選択解除 / テキスト/導線開始 ---------- */
 canvas.addEventListener('mousedown', (e) => {
   if (e.target === canvas || e.target.parentNode === uiLayer) {
     if (textInsertMode) {
@@ -244,9 +252,15 @@ canvas.addEventListener('mousedown', (e) => {
         selectPart(g);
       }
       textInsertMode = false;
-    } else {
-      deselectAll();
+      return;
     }
+    if (wireDrawMode) {
+      const p = snappedPointToGrid(e);
+      wireStart = p;
+      startRubberLine(p.x, p.y);
+      return;
+    }
+    deselectAll();
   }
 });
 
@@ -264,6 +278,8 @@ function createPartOnCanvas(type, x, y) {
   g.addEventListener('click', (e) => { e.stopPropagation(); selectPart(g); });
 
   g.addEventListener('mousedown', (e) => {
+    // 導線モード中は部品ドラッグを開始しない（配線優先）
+    if (wireDrawMode) return;
     e.preventDefault(); e.stopPropagation();
     isDraggingPart = true; selectPart(g);
     const coords = getSvgCoordinates(e);
@@ -290,6 +306,7 @@ function createTextLabel(text, x, y) {
 
   g.addEventListener('click', (e) => { e.stopPropagation(); selectPart(g); });
   g.addEventListener('mousedown', (e) => {
+    if (wireDrawMode) return;
     e.preventDefault(); e.stopPropagation();
     isDraggingPart = true; selectPart(g);
     const coords = getSvgCoordinates(e);
@@ -304,23 +321,47 @@ function createTextLabel(text, x, y) {
 
 /* ---------- 移動・スナップ ---------- */
 canvas.addEventListener('mousemove', (e) => {
+  // 既存パーツ移動
   if (isDraggingPart && selectedPart) {
     const coords = getSvgCoordinates(e);
     let nx = coords.x - offset.x;
     let ny = coords.y - offset.y;
-    nx = Math.round(nx / GRID_SIZE) * GRID_SIZE;
-    ny = Math.round(ny / GRID_SIZE) * GRID_SIZE;
+    // 可変長直線（data-halfあり）は中心10pxスナップ（端子は20px交点に一致）
+    const snap = selectedPart.getAttribute('data-half') ? GRID_SIZE/2 : GRID_SIZE;
+    nx = Math.round(nx / snap) * snap;
+    ny = Math.round(ny / snap) * snap;
     updatePartTransform(selectedPart, nx, ny, getRot(selectedPart));
     updateUILayer();
   }
+
+  // 導線モードのプレビュー
+  if (wireDrawMode && wireStart) {
+    const p = snappedPointToGrid(e);
+    const seg = quantizeToOctant(wireStart, p);
+    updateRubberLine(seg.x1, seg.y1, seg.x2, seg.y2);
+  }
 });
-['mouseup','mouseleave'].forEach(ev => canvas.addEventListener(ev, () => { isDraggingPart = false; }));
+['mouseup','mouseleave'].forEach(ev => canvas.addEventListener(ev, (e) => {
+  if (isDraggingPart) isDraggingPart = false;
+
+  // 導線確定
+  if (wireDrawMode && wireStart && rubberLine) {
+    const end = snappedPointToGrid(e);
+    const seg = quantizeToOctant(wireStart, end);
+    if (!(seg.x1 === seg.x2 && seg.y1 === seg.y2)) {
+      createVariableWire(seg.x1, seg.y1, seg.x2, seg.y2);
+    }
+    rubberLine.remove(); rubberLine = null;
+    wireStart = null;
+  }
+}));
 
 /* ---------- 選択/解除 ---------- */
 function deselectAll(){
   if (selectedPart){ selectedPart.classList.remove('selected'); }
   selectedPart = null;
-  uiLayer.innerHTML = '';
+  // 回転ボタンだけ消去（プレビュー線は残す）
+  uiLayer.querySelectorAll('.ui-rot-btn').forEach(n => n.remove());
 }
 function selectPart(el){
   if (selectedPart === el) return;
@@ -350,7 +391,7 @@ function halfLenFor(deg){ return isAxisAngle(deg) ? HALF_AXIS : HALF_DIAG; }
 /* ---------- 内部形状（端子は原則 ±L,0。ラベル/アースは特例） ---------- */
 function setInnerGeometry(part, rotationDeg){
   const type = part.getAttribute('data-type');
-  const L = halfLenFor(rotationDeg);
+  let L = halfLenFor(rotationDeg);
   const bodyW = 40, bodyH = 16;
   const lineW = `stroke="black" stroke-width="2" stroke-linecap="round"`;
 
@@ -455,13 +496,12 @@ function setInnerGeometry(part, rotationDeg){
   }
 
   if (type === 'ground'){
-  // 接続点は (0,0)。そこから下向きに 1マス（20px）の直線一本だけ。
-  // 三本線はその直下に描画（長→中→短）。
+    // 接続点 (0,0) から下へ 1マス（20px）の直線 → 三本線
     part.innerHTML =
-        `<line x1="0" y1="0" x2="0" y2="20" ${lineW}/>
-        <line x1="-12" y1="20" x2="12"  y2="20" ${lineW}/>
-        <line x1="-8"  y1="24" x2="8"   y2="24" ${lineW}/>
-        <line x1="-4"  y1="28" x2="4"   y2="28" ${lineW}/>`;
+      `<line x1="0" y1="0" x2="0" y2="20" ${lineW}/>
+       <line x1="-12" y1="20" x2="12"  y2="20" ${lineW}/>
+       <line x1="-8"  y1="24" x2="8"   y2="24" ${lineW}/>
+       <line x1="-4"  y1="28" x2="4"   y2="28" ${lineW}/>`;
     return;
   }
 
@@ -470,7 +510,6 @@ function setInnerGeometry(part, rotationDeg){
     const raw = part.getAttribute('data-text') || '';
     const lines = raw.split(/\r?\n/);
 
-    // ASCII連続と非ASCII連続で分割し、フォントを切り替える
     function splitRuns(s){
       const runs = [];
       let i=0;
@@ -484,8 +523,6 @@ function setInnerGeometry(part, rotationDeg){
       return runs;
     }
 
-    // 組版
-    let yCursor = 0;
     let content = `<text transform="rotate(${-rotationDeg})">`;
     for (let li=0; li<lines.length; li++){
       const runs = splitRuns(lines[li]);
@@ -508,6 +545,10 @@ function setInnerGeometry(part, rotationDeg){
 
   /* --- 導線 --- */
   if (type === 'line-straight'){
+    // 可変長（data-half）に対応
+    if (part.getAttribute('data-half')){
+      L = parseFloat(part.getAttribute('data-half'));
+    }
     part.innerHTML = `<line x1="${-L}" y1="0" x2="${L}" y2="0" ${lineW}/>`;
     return;
   }
@@ -541,7 +582,8 @@ function escapeXML(s){
 
 /* ---------- 回転UI（45°刻み） ---------- */
 function updateUILayer(){
-  uiLayer.innerHTML = '';
+  // プレビュー線は残し、回転ボタンだけ削除
+  uiLayer.querySelectorAll('.ui-rot-btn').forEach(n => n.remove());
   if (!selectedPart) return;
   const x = parseFloat(selectedPart.getAttribute('data-x'));
   const y = parseFloat(selectedPart.getAttribute('data-y'));
@@ -571,9 +613,112 @@ window.addEventListener('keydown', (e) => {
 /* ---------- テキスト追加モード ---------- */
 textBtn.addEventListener('click', () => {
   textInsertMode = true;
+  wireDrawMode = false;
+  wireModeBtn.classList.add('secondary');
+  wireModeBtn.style.background = '';
+  wireModeBtn.textContent = '導線モード';
   deselectAll();
   alert('テキストを置きたい位置をキャンバス上でクリックしてください。');
 });
+
+/* ---------- 導線モード ---------- */
+wireModeBtn.addEventListener('click', () => {
+  wireDrawMode = !wireDrawMode;
+  wireModeBtn.classList.toggle('secondary', !wireDrawMode);
+  wireModeBtn.style.background = wireDrawMode ? '#059669' : '';
+  wireModeBtn.textContent = wireDrawMode ? '導線モード（ON）' : '導線モード';
+  textInsertMode = false;
+  if (rubberLine){ rubberLine.remove(); rubberLine = null; }
+  wireStart = null;
+});
+
+function createVariableWire(x1, y1, x2, y2){
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  const half = len / 2;
+  let rot = Math.atan2(dy, dx) * 180 / Math.PI; // 既に45°量子化済み
+
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class','circuit-part');
+  g.setAttribute('data-type','line-straight');
+  g.setAttribute('data-rotation', String(rot));
+  g.setAttribute('data-x', String(cx));
+  g.setAttribute('data-y', String(cy));
+  g.setAttribute('data-half', String(half)); // 可変半長
+  g.setAttribute('transform', `translate(${cx},${cy}) rotate(${rot})`);
+  setInnerGeometry(g, rot);
+
+  g.addEventListener('click', (e) => { e.stopPropagation(); selectPart(g); });
+  g.addEventListener('mousedown', (e) => {
+    if (wireDrawMode) return;
+    e.preventDefault(); e.stopPropagation();
+    isDraggingPart = true; selectPart(g);
+    const coords = getSvgCoordinates(e);
+    const cx0 = parseFloat(g.getAttribute('data-x'));
+    const cy0 = parseFloat(g.getAttribute('data-y'));
+    offset.x = coords.x - cx0; offset.y = coords.y - cy0;
+  });
+
+  canvas.appendChild(g);
+  selectPart(g);
+}
+
+/* プレビュー線 */
+function startRubberLine(x, y){
+  if (rubberLine){ rubberLine.remove(); }
+  rubberLine = document.createElementNS(SVG_NS,'line');
+  rubberLine.setAttribute('x1', x); rubberLine.setAttribute('y1', y);
+  rubberLine.setAttribute('x2', x); rubberLine.setAttribute('y2', y);
+  rubberLine.setAttribute('stroke','rgba(14,165,233,0.9)');
+  rubberLine.setAttribute('stroke-width','2');
+  rubberLine.setAttribute('stroke-linecap','round');
+  uiLayer.appendChild(rubberLine);
+}
+function updateRubberLine(x1,y1,x2,y2){
+  if (!rubberLine) return;
+  rubberLine.setAttribute('x1', x1); rubberLine.setAttribute('y1', y1);
+  rubberLine.setAttribute('x2', x2); rubberLine.setAttribute('y2', y2);
+}
+
+/* 交点スナップ */
+function snappedPointToGrid(evtOrPoint){
+  let x,y;
+  if (typeof evtOrPoint === 'object' && 'clientX' in evtOrPoint){
+    const coords = getSvgCoordinates(evtOrPoint);
+    x = Math.round(coords.x / GRID_SIZE) * GRID_SIZE;
+    y = Math.round(coords.y / GRID_SIZE) * GRID_SIZE;
+  } else {
+    x = Math.round(evtOrPoint.x / GRID_SIZE) * GRID_SIZE;
+    y = Math.round(evtOrPoint.y / GRID_SIZE) * GRID_SIZE;
+  }
+  return {x,y};
+}
+
+/* 最近の 0/45/90/… の方向に量子化し、終点も交点上に */
+function quantizeToOctant(p0, p){
+  const dx = p.x - p0.x, dy = p.y - p0.y;
+  if (dx === 0 && dy === 0) return {x1:p0.x, y1:p0.y, x2:p0.x, y2:p0.y};
+
+  const angle = Math.atan2(dy, dx);
+  const step = Math.PI / 4;
+  const k = Math.round(angle / step);
+  const dirs = [
+    [1,0], [1,1], [0,1], [-1,1],
+    [-1,0], [-1,-1], [0,-1], [1,-1]
+  ];
+  const idx = ((k % 8)+8)%8;
+  const ux = dirs[idx][0], uy = dirs[idx][1];
+
+  const proj = (dx*ux + dy*uy);
+  const unit = (ux !== 0 && uy !== 0) ? GRID_SIZE * Math.SQRT2 : GRID_SIZE;
+  let n = Math.round(proj / unit);
+  const x2 = p0.x + n * ux * GRID_SIZE;
+  const y2 = p0.y + n * uy * GRID_SIZE;
+
+  return {x1:p0.x, y1:p0.y, x2, y2};
+}
 
 /* ---------- 座標/書き出し ---------- */
 function getSvgCoordinates(e){
